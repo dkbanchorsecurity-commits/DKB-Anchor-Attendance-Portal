@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Attendance Portal | DKB Anchor Security Services Ltd</title>
+    
+     <link rel="icon" type="image/png" href="DKB Anchor Logo.png">
+    <link rel="apple-touch-icon" href="DKB Anchor Logo.png">
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#002347">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <style>
+        /* DKB ANCHOR BRANDING COLORS */
+        :root {
+            --primary-blue: #002347;
+            --accent-gold: #c5a059;
+            --success-green: #28a745;
+            --white: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--primary-blue); 
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            user-select: none;
+        }
+
+        /* --- LANDING PAGE STYLES --- */
+        .landing-container { text-align: center; padding: 20px; width: 100%; max-width: 400px; }
+        .company-logo { max-width: 150px; height: auto; margin: 0 auto 20px auto; display: block; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+        .landing-container h1 { color: var(--white); font-size: 1.5rem; margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+        .landing-container .slogan { color: var(--accent-gold); font-size: 0.85rem; font-weight: bold; letter-spacing: 1px; margin-top: 8px; }
+        
+        .btn-main {
+            background-color: var(--accent-gold); color: var(--primary-blue); border: none; padding: 18px; width: 100%; border-radius: 8px;
+            font-size: 1.2rem; font-weight: 800; box-shadow: 0 6px 15px rgba(0,0,0,0.4); margin-top: 40px; cursor: pointer; text-transform: uppercase;
+        }
+
+        .landing-footer { color: rgba(255,255,255,0.6); font-size: 0.75rem; margin-top: 40px; }
+
+        /* --- MODAL (POPUP) STYLES --- */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 35, 71, 0.85); backdrop-filter: blur(5px);
+            z-index: 1000; justify-content: center; align-items: center; padding: 15px; box-sizing: border-box;
+        }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+        .attendance-card {
+            background: var(--white); padding: 25px 20px; border-radius: 12px; width: 100%; max-width: 420px; border-top: 8px solid var(--accent-gold);
+            position: relative; max-height: 95vh; overflow-y: auto;
+        }
+
+        .close-btn { position: absolute; top: 15px; right: 20px; font-size: 1.8rem; color: #999; cursor: pointer; line-height: 1; }
+        .modal-header { text-align: center; margin-bottom: 20px; }
+        .modal-header h2 { color: var(--primary-blue); font-size: 1.2rem; margin: 0; text-transform: uppercase; }
+
+        /* --- FORM STYLES --- */
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.8rem; color: var(--primary-blue); }
+        input, select { width: 100%; padding: 12px; border: 1.5px solid #dce0e4; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
+        input:focus, select:focus { outline: none; border-color: var(--accent-gold); }
+
+        /* --- LIVE CAMERA STYLES --- */
+        .camera-box {
+            background: #fdfdfd; border: 2px dashed var(--accent-gold); border-radius: 10px; padding: 15px; text-align: center; cursor: pointer;
+        }
+        .camera-box.success { border-color: var(--success-green); background-color: #f0fff4; }
+        .camera-text { font-size: 0.85rem; font-weight: 600; color: var(--primary-blue); }
+        
+        #videoFeed { width: 100%; border-radius: 8px; display: none; background: #000; margin-top: 10px; }
+        #photoResult { width: 100%; border-radius: 8px; display: none; margin-top: 10px; }
+        
+        .btn-capture { background: var(--accent-gold); color: var(--primary-blue); border: none; padding: 10px; width: 100%; border-radius: 6px; font-weight: bold; margin-top: 10px; display: none; cursor: pointer; }
+        .retake-text { font-size: 0.8rem; color: #dc3545; text-decoration: underline; margin-top: 10px; display: none; cursor: pointer; }
+
+        .btn-submit { background-color: var(--primary-blue); color: white; border: none; padding: 16px; width: 100%; border-radius: 8px; font-size: 1.1rem; font-weight: bold; margin-top: 15px; cursor: pointer; }
+        .btn-submit:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+
+        #statusMsg { display: none; text-align: center; padding: 15px; background: #d4edda; color: #155724; border-radius: 8px; margin-bottom: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="landing-container">
+    <img src="DKB Anchor Logo.png" alt="DKB Anchor Logo" class="company-logo">
+    <h1>DKB Anchor Security</h1>
+    <div class="slogan">Integrity, Excellence and Reliability</div>
+    <button id="openModalBtn" class="btn-main">Access Shift Log</button>
+    <div class="landing-footer">&copy; 2026 DKB Anchor Security Services Ltd.</div>
+</div>
+
+<div class="modal-overlay" id="formModal">
+    <div class="attendance-card">
+        <span class="close-btn" id="closeModalBtn">&times;</span>
+        <div class="modal-header"><h2>Officer Shift Log</h2></div>
+        <div id="statusMsg">Submission Successful!</div>
+
+        <form id="attendanceForm">
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" id="guardName" placeholder="Enter full name" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Officer ID</label>
+                <input type="text" id="guardID" placeholder="DKB-XXX" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Assignment Post</label>
+                <input type="text" id="postLocation" placeholder="e.g., Main Gate, Event Center" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Duty Action</label>
+                <select id="status" required>
+                    <option value="Clock In">Clocking IN</option>
+                    <option value="Clock Out">Clocking OUT</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Identity Verification (Live Selfie)</label>
+                <div class="camera-box" id="cameraBox">
+                    <span class="camera-text" id="cameraPrompt">📸 Tap to Open Camera</span>
+                    
+                    <video id="videoFeed" autoplay playsinline></video>
+                    <button type="button" id="captureBtn" class="btn-capture">Take Photo</button>
+                    
+                    <canvas id="photoCanvas" style="display:none;"></canvas>
+                    <img id="photoResult" alt="Captured Selfie">
+                    <div id="retakeBtn" class="retake-text">Retake Photo</div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-submit" id="submitBtn">Submit Entry</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // --- LIVE GOOGLE SHEET CONNECTION ---
+    // Updated with your new URL
+    const scriptURL = 'https://script.google.com/macros/s/AKfycbxDv8xsYrJ7DySzeOO7YITDUJK9UWSgs28QK3ppLEd09T_MPlUJj3Q7x8XKluga7pHs/exec';
+
+    const modal = document.getElementById('formModal');
+    const cameraBox = document.getElementById('cameraBox');
+    const videoFeed = document.getElementById('videoFeed');
+    const captureBtn = document.getElementById('captureBtn');
+    const photoCanvas = document.getElementById('photoCanvas');
+    const photoResult = document.getElementById('photoResult');
+    const cameraPrompt = document.getElementById('cameraPrompt');
+    const retakeBtn = document.getElementById('retakeBtn');
+    const submitBtn = document.getElementById('submitBtn');
+    const form = document.getElementById('attendanceForm');
+
+    let mediaStream = null;
+    let finalBase64Photo = null;
+
+    document.getElementById('openModalBtn').addEventListener('click', () => modal.classList.add('active'));
+    
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+        modal.classList.remove('active');
+        stopCamera(); 
+    });
+
+    cameraBox.addEventListener('click', async function(e) {
+        if (e.target.id === 'captureBtn' || e.target.id === 'retakeBtn' || finalBase64Photo) return;
+
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            videoFeed.srcObject = mediaStream;
+            
+            cameraPrompt.style.display = 'none';
+            videoFeed.style.display = 'block';
+            captureBtn.style.display = 'block';
+            cameraBox.style.cursor = 'default';
+        } catch (err) {
+            alert("Camera access denied. Please allow camera permissions in your browser.");
+        }
+    });
+
+    captureBtn.addEventListener('click', function() {
+        photoCanvas.width = videoFeed.videoWidth;
+        photoCanvas.height = videoFeed.videoHeight;
+        
+        const ctx = photoCanvas.getContext('2d');
+        ctx.drawImage(videoFeed, 0, 0, photoCanvas.width, photoCanvas.height);
+        
+        const fullImageData = photoCanvas.toDataURL('image/jpeg', 0.8); 
+        finalBase64Photo = fullImageData.split(',')[1]; 
+        
+        photoResult.src = fullImageData;
+        photoResult.style.display = 'block';
+        videoFeed.style.display = 'none';
+        captureBtn.style.display = 'none';
+        retakeBtn.style.display = 'inline-block';
+        cameraBox.classList.add('success');
+        
+        stopCamera(); 
+    });
+
+    retakeBtn.addEventListener('click', function(e) {
+        e.stopPropagation(); 
+        finalBase64Photo = null;
+        photoResult.style.display = 'none';
+        retakeBtn.style.display = 'none';
+        cameraBox.classList.remove('success');
+        cameraPrompt.style.display = 'block';
+        cameraBox.style.cursor = 'pointer';
+    });
+
+    function stopCamera() {
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+        }
+    }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        if (!finalBase64Photo) {
+            alert("Security Protocol: You must capture a live photo to submit your shift.");
+            return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Verifying GPS...";
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => processUpload(pos.coords.latitude, pos.coords.longitude),
+                (err) => {
+                    alert("GPS Required for Integrity. Please enable location settings.");
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = "Submit Entry";
+                }
+            );
+        } else {
+            alert("Geolocation is not supported by this device.");
+            submitBtn.disabled = false;
+        }
+    });
+
+    function processUpload(lat, lon) {
+        submitBtn.innerText = "Encrypting & Uploading...";
+        
+        const payload = {
+            name: document.getElementById('guardName').value,
+            id: document.getElementById('guardID').value,
+            location: document.getElementById('postLocation').value,
+            status: document.getElementById('status').value,
+            image: finalBase64Photo, 
+            latitude: lat,
+            longitude: lon
+        };
+
+        fetch(scriptURL, { 
+            method: 'POST', 
+            mode: 'no-cors', 
+            body: JSON.stringify(payload) 
+        })
+        .then(() => {
+            document.getElementById('statusMsg').style.display = 'block';
+            form.style.display = 'none';
+            setTimeout(() => location.reload(), 3000); 
+        })
+        .catch(error => {
+            alert("Network error. Please try submitting again.");
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Submit Entry";
+        });
+    }
+</script>
+
+</body>
+</html>
