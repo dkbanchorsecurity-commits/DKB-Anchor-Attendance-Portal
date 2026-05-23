@@ -63,12 +63,28 @@
     </style>
 </head>
 <body onclick="unlockAudio()" ontouchstart="unlockAudio()">
-    <div class="login-box">
-        <!-- DKB Anchor Branding -->
-        <img id="portalLogo" src="logo.png" alt="DKB Anchor Security Logo" style="max-height: 60px; margin-bottom: 5px; border-radius: 4px;">
+    
+    <!-- 1. LOGIN SCREEN -->
+    <div id="login-screen" class="login-box">
+        <img id="portalLogoLogin" src="logo.png" alt="DKB Anchor Security Logo" style="max-height: 60px; margin-bottom: 5px; border-radius: 4px;">
         <h2 style="font-size: 1.4rem; color: var(--primary-bg); margin: 0; text-transform: uppercase;">DKB Anchor Security</h2>
-        <p style="margin: 2px 0 10px 0; font-size: 0.9rem; font-weight: bold; color: var(--accent-gold); letter-spacing: 1px;">SERVICES LTD</p>
-        <div style="background: var(--primary-bg); color: white; padding: 4px 10px; border-radius: 20px; font-size: 0.85rem; display: inline-block; margin-bottom: 15px;">Guard Portal</div>
+        <p style="margin: 2px 0 10px 0; font-size: 0.9rem; font-weight: bold; color: var(--accent-gold); letter-spacing: 1px;">PORTAL LOGIN</p>
+        
+        <div style="margin-top: 20px;">
+            <input type="email" id="loginEmail" placeholder="Location Email Address">
+            <input type="password" id="loginPass" placeholder="Location Password">
+            <button class="btn btn-obs" onclick="loginGuard()" style="margin-top: 15px;"><i class="fa-solid fa-lock"></i> SECURE LOGIN</button>
+            <div id="loginStatus" class="status-msg" style="color: var(--danger-red);"></div>
+        </div>
+    </div>
+
+    <!-- 2. MAIN PORTAL -->
+    <div id="main-portal" class="login-box" style="display: none;">
+        <!-- Header & Logout -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div style="background: var(--primary-bg); color: white; padding: 4px 10px; border-radius: 20px; font-size: 0.85rem;">Guard Portal</div>
+            <button onclick="logoutGuard()" style="background: none; border: none; color: var(--danger-red); font-weight: bold; cursor: pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+        </div>
         
         <div id="camera-container">
             <video id="camera-feed" autoplay playsinline muted></video>
@@ -96,7 +112,7 @@
 
         <!-- Time & Attendance -->
         <div id="section-attendance" class="form-section active">
-            <input type="text" id="guardId" placeholder="Guard ID (DKB-XXX)">
+            <input type="text" id="guardId" placeholder="Staff ID (DKB-XXX)">
             <button class="btn btn-in" onclick="logAttendance('in')">CLOCK IN</button>
             <button class="btn btn-out" onclick="logAttendance('out')">CLOCK OUT</button>
             <div id="status-attendance" class="status-msg"></div>
@@ -104,7 +120,7 @@
 
         <!-- Observations -->
         <div id="section-observation" class="form-section">
-            <input type="text" id="obsGuardId" placeholder="Your Guard ID">
+            <input type="text" id="obsGuardId" placeholder="Your Staff ID (DKB-XXX)">
             <input type="text" id="obsSite" placeholder="Site / Location">
             <textarea id="obsDesc" rows="3" placeholder="Observation details..."></textarea>
             <button class="btn btn-obs" onclick="logObservation()">SUBMIT</button>
@@ -113,7 +129,7 @@
 
         <!-- Incidents -->
         <div id="section-incident" class="form-section">
-            <input type="text" id="incGuardId" placeholder="Your Guard ID">
+            <input type="text" id="incGuardId" placeholder="Your Staff ID (DKB-XXX)">
             <input type="text" id="incLocation" placeholder="Site / Location">
             <select id="incCategory">
                 <option value="" disabled selected>Incident Type</option>
@@ -128,7 +144,7 @@
 
         <!-- Broadcast Messages -->
         <div id="section-broadcast" class="form-section">
-            <input type="text" id="broadSenderId" placeholder="Your Guard ID">
+            <input type="text" id="broadSenderId" placeholder="Your Staff ID (DKB-XXX)">
             <select id="broadRecipient">
                 <option value="" disabled selected>Select Recipient</option>
                 <option value="All Guards">All Guards</option>
@@ -154,8 +170,9 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
-        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD7cUX5DXzGhktfRItpdXJ45TrYH9KlVm4",
@@ -168,6 +185,7 @@
 
         const app = initializeApp(firebaseConfig);
         const firestore = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+        const auth = getAuth(app);
 
         // --- AUDIO ENGINE ---
         const siren = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
@@ -187,6 +205,84 @@
             if(alarmTimer) clearTimeout(alarmTimer);
         };
 
+        // --- GEOLOCATION ENGINE ---
+        const getGPSLocation = () => {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    resolve({ error: "Geolocation not supported by browser" });
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        resolve({
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude,
+                            accuracy: position.coords.accuracy
+                        });
+                    },
+                    (error) => { resolve({ error: error.message }); },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            });
+        };
+
+        // --- AUTHENTICATION ENGINE ---
+        let messageUnsubscribe = null;
+
+        window.loginGuard = async () => {
+            const email = document.getElementById('loginEmail').value.trim();
+            const pass = document.getElementById('loginPass').value;
+            const status = document.getElementById('loginStatus');
+            
+            if (!email || !pass) {
+                status.innerText = "Please enter both email and password.";
+                return;
+            }
+            
+            status.innerText = "Authenticating...";
+            status.style.color = "var(--primary-bg)";
+            
+            try {
+                await signInWithEmailAndPassword(auth, email, pass);
+            } catch (error) {
+                status.style.color = "var(--danger-red)";
+                status.innerText = "Invalid credentials. Please try again.";
+            }
+        };
+
+        window.logoutGuard = async () => {
+            await signOut(auth);
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('main-portal').style.display = 'block';
+                
+                // Keep input open for manual Staff ID entry
+                const idFields = ['guardId', 'obsGuardId', 'incGuardId', 'broadSenderId'];
+                idFields.forEach(id => {
+                    const input = document.getElementById(id);
+                    if(input) {
+                        input.readOnly = false;
+                        input.style.backgroundColor = "";
+                        input.style.color = "";
+                    }
+                });
+                window.loadMessages(); 
+            } else {
+                document.getElementById('login-screen').style.display = 'block';
+                document.getElementById('main-portal').style.display = 'none';
+                document.getElementById('loginPass').value = ''; 
+                document.getElementById('loginStatus').innerText = '';
+                
+                if (messageUnsubscribe) {
+                    messageUnsubscribe();
+                    messageUnsubscribe = null;
+                }
+            }
+        });
+
         // --- MASTER RESET ---
         window.resetPortal = (statusId, successMessage) => {
             if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -200,10 +296,9 @@
             document.getElementById('start-camera-btn').style.display = "flex";
             document.getElementById('start-camera-btn').innerHTML = '<i class="fa-solid fa-camera"></i> Open Camera';
 
-            // Clear all text inputs across tabs
-            ['guardId', 'obsGuardId', 'obsSite', 'obsDesc', 'incGuardId', 'incLocation', 'incDesc', 'broadSenderId', 'broadSubject', 'broadBody'].forEach(id => document.getElementById(id).value = "");
+            // Reset forms but retain the typed Staff IDs so guards don't have to retype them dynamically
+            ['obsSite', 'obsDesc', 'incLocation', 'incDesc', 'broadSubject', 'broadBody'].forEach(id => document.getElementById(id).value = "");
             
-            // Reset Dropdowns
             document.getElementById('incCategory').selectedIndex = 0;
             document.getElementById('broadRecipient').selectedIndex = 0;
 
@@ -259,7 +354,7 @@
             document.getElementById('start-camera-btn').innerHTML = '<i class="fa-solid fa-camera"></i> Retake Photo';
         };
 
-        // --- HARDWARE BACK BUTTON LOGIC (HISTORY API) ---
+        // --- HISTORY API ---
         let previousMsgCount = -1, unreadBadgeCount = 0;
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -282,7 +377,6 @@
         });
 
         window.switchTab = (tabName, fromHistory = false) => {
-            // Updated to include broadcast tab
             ['attendance', 'observation', 'incident', 'broadcast', 'messages'].forEach(n => {
                 document.getElementById('section-' + n).classList.remove('active');
                 document.getElementById('tab-' + n).classList.remove('active');
@@ -298,9 +392,7 @@
                 document.getElementById('camera-container').style.display = 'block'; 
             }
 
-            if (!fromHistory) {
-                history.pushState({ tab: tabName }, '', '#' + tabName);
-            }
+            if (!fromHistory) history.pushState({ tab: tabName }, '', '#' + tabName);
             document.getElementById('msg-reader').style.display = 'none';
         };
 
@@ -313,9 +405,7 @@
             document.getElementById('msg-reader').style.display = 'block';
             window.silenceAlarm();
 
-            if (!fromHistory) {
-                history.pushState({ view: 'message', id: id }, '', '#msg-' + id);
-            }
+            if (!fromHistory) history.pushState({ view: 'message', id: id }, '', '#msg-' + id);
         };
 
         window.closeMessage = () => { history.back(); };
@@ -327,33 +417,33 @@
             const statusDiv = document.getElementById('status-attendance');
 
             statusDiv.style.opacity = 1;
-            
             if(!id) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter a Guard ID."; return;
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
             }
             if(!id.startsWith("DKB-")) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Guard ID must start with 'DKB-'."; return;
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Staff ID must start with 'DKB-'."; return;
             }
             if(!photo) {
                 statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: You must capture a photo first."; return;
             }
             
-            statusDiv.innerText = "Syncing...";
+            statusDiv.innerText = "Acquiring GPS & Syncing...";
             statusDiv.style.color = "var(--primary-bg)";
             
             const date = new Date().toISOString().split('T')[0];
             const timeStr = new Date().toLocaleTimeString();
+            const location = await getGPSLocation();
             
             try {
                 await setDoc(doc(firestore, "attendance", `${id}_${date}`), {
                     id: `${id}_${date}`, empId: id, date,
                     [type === 'in' ? 'clockIn' : 'clockOut']: timeStr,
-                    [type === 'in' ? 'photoIn' : 'photoOut']: photo
+                    [type === 'in' ? 'photoIn' : 'photoOut']: photo,
+                    [type === 'in' ? 'gpsIn' : 'gpsOut']: location.error ? location.error : location
                 }, { merge: true });
                 
                 window.resetPortal('status-attendance', `Success: Clocked ${type.toUpperCase()} at ${timeStr}`);
             } catch (error) {
-                console.error(error);
                 window.resetPortal('status-attendance', `Saved Offline: Clocked ${type.toUpperCase()} at ${timeStr}`);
             }
         };
@@ -367,17 +457,17 @@
             const desc = document.getElementById('obsDesc').value.trim();
             const photo = document.getElementById('photo-data').value || null;
 
-            if (!guardId || !site || !desc) {
-                statusDiv.style.color = "var(--danger-red)";
-                statusDiv.innerText = "Error: Please fill in all text fields.";
-                return;
+            if (!guardId) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
+            }
+            if (!site || !desc) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill in all text fields."; return;
             }
 
             statusDiv.innerText = "Syncing...";
             statusDiv.style.color = "var(--primary-bg)";
 
             const id = "OBS-" + Date.now().toString().slice(-6);
-            
             try {
                 await setDoc(doc(firestore, "observations", id), {
                     id, site, observer: guardId, description: desc, photo,
@@ -385,7 +475,6 @@
                 });
                 window.resetPortal('status-observation', "Observation Uploaded Successfully.");
             } catch (error) {
-                console.error(error);
                 window.resetPortal('status-observation', "Saved Offline: Observation Logged.");
             }
         };
@@ -395,35 +484,36 @@
             statusDiv.style.opacity = 1;
 
             const guardId = document.getElementById('incGuardId').value.trim().toUpperCase();
-            const location = document.getElementById('incLocation').value.trim();
+            const locationName = document.getElementById('incLocation').value.trim();
             const category = document.getElementById('incCategory').value;
             const desc = document.getElementById('incDesc').value.trim();
             const photo = document.getElementById('photo-data').value || null;
 
-            if (!guardId || !location || !category || !desc) {
-                statusDiv.style.color = "var(--danger-red)";
-                statusDiv.innerText = "Error: Please fill out all incident details.";
-                return;
+            if (!guardId) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
+            }
+            if (!locationName || !category || !desc) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all incident details."; return;
             }
 
-            statusDiv.innerText = "Alerting HQ...";
+            statusDiv.innerText = "Acquiring GPS & Alerting HQ...";
             statusDiv.style.color = "var(--primary-bg)";
 
             const id = "INC-" + Date.now().toString().slice(-6);
+            const gpsData = await getGPSLocation();
             
             try {
                 await setDoc(doc(firestore, "incidents", id), {
-                    id, location, category, reporter: guardId, description: desc, photo,
+                    id, location: locationName, category, reporter: guardId, description: desc, photo,
+                    gpsData: gpsData.error ? gpsData.error : gpsData,
                     status: "Pending", timestamp: Date.now(), date: new Date().toISOString()
                 });
                 window.resetPortal('status-incident', "CRITICAL ALERT SENT TO HQ.");
             } catch (error) {
-                console.error(error);
                 window.resetPortal('status-incident', "Saved Offline: Will alert HQ when signal returns.");
             }
         };
 
-        // --- NEW: SEND BROADCAST ---
         window.sendBroadcast = async () => {
             const statusDiv = document.getElementById('status-broadcast');
             statusDiv.style.opacity = 1;
@@ -433,71 +523,66 @@
             const subject = document.getElementById('broadSubject').value.trim();
             const body = document.getElementById('broadBody').value.trim();
 
-            if (!sender || !recipient || !subject || !body) {
-                statusDiv.style.color = "var(--danger-red)";
-                statusDiv.innerText = "Error: Please fill out all fields.";
-                return;
+            if (!sender) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
+            }
+            if (!recipient || !subject || !body) {
+                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all fields."; return;
             }
 
             statusDiv.innerText = "Sending Broadcast...";
             statusDiv.style.color = "var(--primary-bg)";
 
             const id = "MSG-" + Date.now().toString().slice(-6);
-            
             try {
                 await setDoc(doc(firestore, "messages", id), {
-                    id, 
-                    sender, 
-                    recipient, 
-                    subject, 
-                    body,
-                    timestamp: Date.now(), 
-                    date: new Date().toISOString()
+                    id, sender, recipient, subject, body,
+                    timestamp: Date.now(), date: new Date().toISOString()
                 });
                 window.resetPortal('status-broadcast', "Broadcast Sent Successfully.");
             } catch (error) {
-                console.error(error);
                 window.resetPortal('status-broadcast', "Saved Offline: Will send when signal returns.");
             }
         };
 
         // --- MESSAGE LISTENER ---
         let cached = {};
-        onSnapshot(query(collection(firestore, "messages"), orderBy("timestamp", "desc")), (snap) => {
-            const container = document.getElementById("msg-list-container"); container.innerHTML = "";
-            let count = 0;
-            snap.forEach(d => {
-                const m = d.data();
-                if(m.recipient.includes("Guards") || m.recipient.includes("Employees") || m.recipient === "All Guards") {
-                    count++; cached[d.id] = m;
-                    container.innerHTML += `<div class="msg-card" onclick="openMessage('${d.id}')"><strong>${m.subject}</strong><br><small style="color:#666;">From: ${m.sender || 'Admin'}</small></div>`;
+        window.loadMessages = () => {
+            if (messageUnsubscribe) return;
+            messageUnsubscribe = onSnapshot(query(collection(firestore, "messages"), orderBy("timestamp", "desc")), (snap) => {
+                const container = document.getElementById("msg-list-container"); container.innerHTML = "";
+                let count = 0;
+                snap.forEach(d => {
+                    const m = d.data();
+                    if(m.recipient.includes("Guards") || m.recipient.includes("Employees") || m.recipient === "All Guards") {
+                        count++; cached[d.id] = m;
+                        container.innerHTML += `<div class="msg-card" onclick="openMessage('${d.id}')"><strong>${m.subject}</strong><br><small style="color:#666;">From: ${m.sender || 'Admin'}</small></div>`;
+                    }
+                });
+                if(previousMsgCount !== -1 && count > previousMsgCount) {
+                    unreadBadgeCount += (count - previousMsgCount);
+                    document.getElementById('guardMsgBadge').innerText = unreadBadgeCount;
+                    document.getElementById('guardMsgBadge').style.display = 'block';
+                    document.getElementById('stop-alarm-btn').style.display = 'flex';
+                    
+                    siren.play().catch(e => {});
+                    if ("vibrate" in navigator) navigator.vibrate([1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500]);
+                    if(alarmTimer) clearTimeout(alarmTimer);
+                    alarmTimer = setTimeout(window.silenceAlarm, 10000);
                 }
+                previousMsgCount = count;
             });
-            if(previousMsgCount !== -1 && count > previousMsgCount) {
-                unreadBadgeCount += (count - previousMsgCount);
-                document.getElementById('guardMsgBadge').innerText = unreadBadgeCount;
-                document.getElementById('guardMsgBadge').style.display = 'block';
-                document.getElementById('stop-alarm-btn').style.display = 'flex';
-                
-                siren.play().catch(e => {});
-                if ("vibrate" in navigator) navigator.vibrate([1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500]);
-                if(alarmTimer) clearTimeout(alarmTimer);
-                alarmTimer = setTimeout(window.silenceAlarm, 10000);
-            }
-            previousMsgCount = count;
-        });
+        };
 
         // --- BRANDING SYNC ---
         async function loadBranding() {
             try {
                 const docSnap = await getDoc(doc(firestore, "settings", "system"));
                 if (docSnap.exists() && docSnap.data().logo) {
-                    document.getElementById("portalLogo").src = docSnap.data().logo;
+                    document.getElementById("portalLogoLogin").src = docSnap.data().logo;
                     document.getElementById("app-favicon").href = docSnap.data().logo;
                 }
-            } catch (e) {
-                // Ignore load failure, let local placeholder render
-            }
+            } catch (e) {}
         }
 
         if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(()=>{}); }); }
