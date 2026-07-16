@@ -1,7 +1,6 @@
 {
-  "name": "DKB Anchor Security Guard Portal",
+  "name": "DKB Anchor Guard Portal",
   "short_name": "Guard Portal",
-  "description": "Field operations and incident reporting for DKB Anchor Security.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0A2540",
@@ -9,15 +8,16 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "logo.png",
+      "src": "logo-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "logo.png",
+      "src": "logo-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
