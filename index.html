@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Guard Portal - DKB Anchor Security Services Ltd</title>
+    <title>Guard Portal - DKB Anchor Security</title>
     
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0A2540">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Guard Portal">
+    <link rel="apple-touch-icon" href="logo-180.png">
     <link rel="icon" id="app-favicon" href="logo.png">
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -60,6 +62,8 @@
         #msg-reader { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; z-index: 200; padding: 20px; box-sizing: border-box; text-align: left; overflow-y: auto; }
         .reader-close { background: #E2E8F0; color: var(--primary-bg); border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; margin-bottom: 15px; cursor: pointer; }
         .status-msg { font-weight: bold; margin-top: 10px; min-height: 24px; font-size: 0.9rem; transition: opacity 0.3s;}
+        
+        #ios-install-banner { display: none; background-color: var(--accent-gold); color: var(--primary-bg); padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.85rem; font-weight: bold; }
     </style>
 </head>
 <body onclick="unlockAudio()" ontouchstart="unlockAudio()">
@@ -89,6 +93,15 @@
             </div>
             <button onclick="logoutGuard()" style="background: none; border: none; color: var(--danger-red); font-weight: bold; cursor: pointer; padding: 5px;"><i class="fa-solid fa-right-from-bracket fa-lg"></i></button>
         </div>
+        
+        <div id="ios-install-banner">
+            <i class="fa-brands fa-apple"></i> Tap Share below and select <strong>Add to Home Screen</strong> to install.
+        </div>
+
+        <button id="enable-notifications-btn" class="btn" style="background-color: var(--accent-gold); color: var(--primary-bg); display: none; padding: 10px;" onclick="requestNotificationPermission()">
+            <i class="fa-solid fa-bell"></i> Enable Alert Notifications
+        </button>
+        <div id="status-notifications" class="status-msg" style="margin-top: 0; margin-bottom: 10px;"></div>
         
         <div id="camera-container">
             <video id="camera-feed" autoplay playsinline muted></video>
@@ -172,6 +185,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD7cUX5DXzGhktfRItpdXJ45TrYH9KlVm4",
@@ -185,6 +199,73 @@
         const app = initializeApp(firebaseConfig);
         const firestore = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
         const auth = getAuth(app);
+        const messaging = getMessaging(app);
+
+        // --- IOS INSTALL PROMPT LOGIC ---
+        const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+        const isStandalone = () => ('standalone' in window.navigator) && (window.navigator.standalone);
+        
+        if (isIos() && !isStandalone()) {
+            document.getElementById('ios-install-banner').style.display = "block";
+        }
+
+        // --- NOTIFICATION ENGINE ---
+        if ("Notification" in window && Notification.permission !== "granted" && isStandalone()) {
+            document.getElementById('enable-notifications-btn').style.display = "flex";
+        }
+
+        window.requestNotificationPermission = async () => {
+            const statusDiv = document.getElementById('status-notifications');
+            statusDiv.style.opacity = 1;
+            statusDiv.innerText = "Requesting permission...";
+            statusDiv.style.color = "var(--primary-bg)";
+
+            try {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    const currentToken = await getToken(messaging, { 
+                        vapidKey: 'BEgBp9n2Se36K02RbIZjRyhEsBgDHI_fGQbvGhHcKWb2fK_l-yzWsahFaeEnJGrFl3OqpaG-qKTSccLlt2ok3C0' 
+                    });
+
+                    if (currentToken) {
+                        document.getElementById('enable-notifications-btn').style.display = "none";
+                        window.resetPortal('status-notifications', "Notifications Enabled Successfully.");
+                        
+                        const user = auth.currentUser;
+                        if (user) {
+                            await setDoc(doc(firestore, "guard_tokens", user.uid), {
+                                token: currentToken,
+                                updatedAt: new Date().toISOString()
+                            }, { merge: true });
+                        }
+                    } else {
+                        statusDiv.style.color = "var(--danger-red)";
+                        statusDiv.innerText = "Failed to generate token. Check VAPID key.";
+                    }
+                } else {
+                    statusDiv.style.color = "var(--danger-red)";
+                    statusDiv.innerText = "Permission denied.";
+                }
+            } catch (error) {
+                statusDiv.style.color = "var(--danger-red)";
+                statusDiv.innerText = "Error enabling notifications.";
+            }
+        };
+
+        onMessage(messaging, (payload) => {
+            document.getElementById('guardMsgBadge').style.display = 'block';
+            document.getElementById('stop-alarm-btn').style.display = 'flex';
+            
+            window.unlockAudio(); 
+            if ("vibrate" in navigator) navigator.vibrate([1000, 500, 1000, 500, 1000, 500]);
+            
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(payload.notification.title || "DKB Anchor Alert", {
+                    body: payload.notification.body,
+                    icon: "logo.png"
+                });
+            }
+        });
 
         // --- AUDIO ENGINE ---
         const siren = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
@@ -213,11 +294,7 @@
                 }
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        resolve({
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude,
-                            accuracy: position.coords.accuracy
-                        });
+                        resolve({ lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy });
                     },
                     (error) => { resolve({ error: error.message }); },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -233,40 +310,24 @@
             const pass = document.getElementById('loginPass').value;
             const status = document.getElementById('loginStatus');
             
-            if (!email || !pass) {
-                status.innerText = "Please enter both email and password.";
-                return;
-            }
+            if (!email || !pass) { status.innerText = "Please enter both email and password."; return; }
+            status.innerText = "Authenticating..."; status.style.color = "var(--primary-bg)";
             
-            status.innerText = "Authenticating...";
-            status.style.color = "var(--primary-bg)";
-            
-            try {
-                await signInWithEmailAndPassword(auth, email, pass);
-            } catch (error) {
-                status.style.color = "var(--danger-red)";
-                status.innerText = "Invalid credentials. Please try again.";
-            }
+            try { await signInWithEmailAndPassword(auth, email, pass); } 
+            catch (error) { status.style.color = "var(--danger-red)"; status.innerText = "Invalid credentials. Please try again."; }
         };
 
-        window.logoutGuard = async () => {
-            await signOut(auth);
-        };
+        window.logoutGuard = async () => { await signOut(auth); };
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('main-portal').style.display = 'block';
                 
-                // Keep input open for manual Staff ID entry
                 const idFields = ['guardId', 'obsGuardId', 'incGuardId', 'broadSenderId'];
                 idFields.forEach(id => {
                     const input = document.getElementById(id);
-                    if(input) {
-                        input.readOnly = false;
-                        input.style.backgroundColor = "";
-                        input.style.color = "";
-                    }
+                    if(input) { input.readOnly = false; input.style.backgroundColor = ""; input.style.color = ""; }
                 });
                 window.loadMessages(); 
             } else {
@@ -275,10 +336,7 @@
                 document.getElementById('loginPass').value = ''; 
                 document.getElementById('loginStatus').innerText = '';
                 
-                if (messageUnsubscribe) {
-                    messageUnsubscribe();
-                    messageUnsubscribe = null;
-                }
+                if (messageUnsubscribe) { messageUnsubscribe(); messageUnsubscribe = null; }
             }
         });
 
@@ -295,17 +353,13 @@
             document.getElementById('start-camera-btn').style.display = "flex";
             document.getElementById('start-camera-btn').innerHTML = '<i class="fa-solid fa-camera"></i> Open Camera';
 
-            // Reset forms but retain the typed Staff IDs so guards don't have to retype them dynamically
             ['obsSite', 'obsDesc', 'incLocation', 'incDesc', 'broadSubject', 'broadBody'].forEach(id => document.getElementById(id).value = "");
-            
             document.getElementById('incCategory').selectedIndex = 0;
             document.getElementById('broadRecipient').selectedIndex = 0;
 
             if (statusId && successMessage) {
                 const statusDiv = document.getElementById(statusId);
-                statusDiv.style.opacity = 1;
-                statusDiv.style.color = "var(--success-green)";
-                statusDiv.innerText = successMessage;
+                statusDiv.style.opacity = 1; statusDiv.style.color = "var(--success-green)"; statusDiv.innerText = successMessage;
                 setTimeout(() => { 
                     statusDiv.style.opacity = 0;
                     setTimeout(() => { statusDiv.innerText = ""; }, 300);
@@ -314,8 +368,7 @@
         };
 
         // --- CAMERA LOGIC ---
-        let stream = null;
-        let currentFacingMode = "environment";
+        let stream = null; let currentFacingMode = "environment";
 
         window.startCamera = async () => {
             if (stream) stream.getTracks().forEach(t => t.stop());
@@ -334,10 +387,8 @@
         window.toggleCamera = () => { currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment"; window.startCamera(); };
 
         window.takePhoto = () => {
-            const video = document.getElementById('camera-feed');
-            const canvas = document.createElement('canvas');
-            canvas.width = 320; canvas.height = 240;
-            const ctx = canvas.getContext('2d');
+            const video = document.getElementById('camera-feed'); const canvas = document.createElement('canvas');
+            canvas.width = 320; canvas.height = 240; const ctx = canvas.getContext('2d');
             if (currentFacingMode === "user") { ctx.translate(320, 0); ctx.scale(-1, 1); }
             ctx.drawImage(video, 0, 0, 320, 240);
             document.getElementById('photo-data').value = canvas.toDataURL('image/jpeg', 0.6);
@@ -363,16 +414,9 @@
 
         window.addEventListener('popstate', (event) => {
             if (event.state) {
-                if (event.state.view === 'message') {
-                    window.openMessage(event.state.id, true);
-                } else if (event.state.tab) {
-                    document.getElementById('msg-reader').style.display = 'none';
-                    window.switchTab(event.state.tab, true);
-                }
-            } else {
-                document.getElementById('msg-reader').style.display = 'none';
-                window.switchTab('attendance', true);
-            }
+                if (event.state.view === 'message') { window.openMessage(event.state.id, true); } 
+                else if (event.state.tab) { document.getElementById('msg-reader').style.display = 'none'; window.switchTab(event.state.tab, true); }
+            } else { document.getElementById('msg-reader').style.display = 'none'; window.switchTab('attendance', true); }
         });
 
         window.switchTab = (tabName, fromHistory = false) => {
@@ -385,25 +429,19 @@
             
             if(tabName === 'messages') { 
                 unreadBadgeCount = 0; document.getElementById('guardMsgBadge').style.display = 'none'; 
-                document.getElementById('camera-container').style.display = 'none';
-                window.silenceAlarm(); 
-            } else { 
-                document.getElementById('camera-container').style.display = 'block'; 
-            }
+                document.getElementById('camera-container').style.display = 'none'; window.silenceAlarm(); 
+            } else { document.getElementById('camera-container').style.display = 'block'; }
 
             if (!fromHistory) history.pushState({ tab: tabName }, '', '#' + tabName);
             document.getElementById('msg-reader').style.display = 'none';
         };
 
         window.openMessage = (id, fromHistory = false) => {
-            const m = cached[id];
-            if(!m) return;
+            const m = cached[id]; if(!m) return;
             document.getElementById('read-subject').innerText = m.subject;
             document.getElementById('read-date').innerText = new Date(m.timestamp).toLocaleString();
             document.getElementById('read-body').innerText = m.body;
-            document.getElementById('msg-reader').style.display = 'block';
-            window.silenceAlarm();
-
+            document.getElementById('msg-reader').style.display = 'block'; window.silenceAlarm();
             if (!fromHistory) history.pushState({ view: 'message', id: id }, '', '#msg-' + id);
         };
 
@@ -416,18 +454,11 @@
             const statusDiv = document.getElementById('status-attendance');
 
             statusDiv.style.opacity = 1;
-            if(!id) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
-            }
-            if(!id.startsWith("DKB-")) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Staff ID must start with 'DKB-'."; return;
-            }
-            if(!photo) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: You must capture a photo first."; return;
-            }
+            if(!id) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return; }
+            if(!id.startsWith("DKB-")) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Staff ID must start with 'DKB-'."; return; }
+            if(!photo) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: You must capture a photo first."; return; }
             
-            statusDiv.innerText = "Acquiring GPS & Syncing...";
-            statusDiv.style.color = "var(--primary-bg)";
+            statusDiv.innerText = "Acquiring GPS & Syncing..."; statusDiv.style.color = "var(--primary-bg)";
             
             const date = new Date().toISOString().split('T')[0];
             const timeStr = new Date().toLocaleTimeString();
@@ -440,108 +471,75 @@
                     [type === 'in' ? 'photoIn' : 'photoOut']: photo,
                     [type === 'in' ? 'gpsIn' : 'gpsOut']: location.error ? location.error : location
                 }, { merge: true });
-                
                 window.resetPortal('status-attendance', `Success: Clocked ${type.toUpperCase()} at ${timeStr}`);
-            } catch (error) {
-                window.resetPortal('status-attendance', `Saved Offline: Clocked ${type.toUpperCase()} at ${timeStr}`);
-            }
+            } catch (error) { window.resetPortal('status-attendance', `Saved Offline: Clocked ${type.toUpperCase()} at ${timeStr}`); }
         };
 
         window.logObservation = async () => {
-            const statusDiv = document.getElementById('status-observation');
-            statusDiv.style.opacity = 1;
-
+            const statusDiv = document.getElementById('status-observation'); statusDiv.style.opacity = 1;
             const guardId = document.getElementById('obsGuardId').value.trim().toUpperCase();
             const site = document.getElementById('obsSite').value.trim();
             const desc = document.getElementById('obsDesc').value.trim();
             const photo = document.getElementById('photo-data').value || null;
 
-            if (!guardId) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
-            }
-            if (!site || !desc) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill in all text fields."; return;
-            }
+            if (!guardId) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return; }
+            if (!site || !desc) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill in all text fields."; return; }
 
-            statusDiv.innerText = "Syncing...";
-            statusDiv.style.color = "var(--primary-bg)";
-
+            statusDiv.innerText = "Syncing..."; statusDiv.style.color = "var(--primary-bg)";
             const id = "OBS-" + Date.now().toString().slice(-6);
+            
             try {
                 await setDoc(doc(firestore, "observations", id), {
                     id, site, observer: guardId, description: desc, photo,
                     status: "Pending Review", timestamp: Date.now(), date: new Date().toISOString()
                 });
                 window.resetPortal('status-observation', "Observation Uploaded Successfully.");
-            } catch (error) {
-                window.resetPortal('status-observation', "Saved Offline: Observation Logged.");
-            }
+            } catch (error) { window.resetPortal('status-observation', "Saved Offline: Observation Logged."); }
         };
 
         window.logIncidentGuard = async () => {
-            const statusDiv = document.getElementById('status-incident');
-            statusDiv.style.opacity = 1;
-
+            const statusDiv = document.getElementById('status-incident'); statusDiv.style.opacity = 1;
             const guardId = document.getElementById('incGuardId').value.trim().toUpperCase();
             const locationName = document.getElementById('incLocation').value.trim();
             const category = document.getElementById('incCategory').value;
             const desc = document.getElementById('incDesc').value.trim();
             const photo = document.getElementById('photo-data').value || null;
 
-            if (!guardId) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
-            }
-            if (!locationName || !category || !desc) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all incident details."; return;
-            }
+            if (!guardId) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return; }
+            if (!locationName || !category || !desc) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all incident details."; return; }
 
-            statusDiv.innerText = "Acquiring GPS & Alerting HQ...";
-            statusDiv.style.color = "var(--primary-bg)";
-
+            statusDiv.innerText = "Acquiring GPS & Alerting HQ..."; statusDiv.style.color = "var(--primary-bg)";
             const id = "INC-" + Date.now().toString().slice(-6);
             const gpsData = await getGPSLocation();
             
             try {
                 await setDoc(doc(firestore, "incidents", id), {
                     id, location: locationName, category, reporter: guardId, description: desc, photo,
-                    gpsData: gpsData.error ? gpsData.error : gpsData,
-                    status: "Pending", timestamp: Date.now(), date: new Date().toISOString()
+                    gpsData: gpsData.error ? gpsData.error : gpsData, status: "Pending", timestamp: Date.now(), date: new Date().toISOString()
                 });
                 window.resetPortal('status-incident', "CRITICAL ALERT SENT TO HQ.");
-            } catch (error) {
-                window.resetPortal('status-incident', "Saved Offline: Will alert HQ when signal returns.");
-            }
+            } catch (error) { window.resetPortal('status-incident', "Saved Offline: Will alert HQ when signal returns."); }
         };
 
         window.sendBroadcast = async () => {
-            const statusDiv = document.getElementById('status-broadcast');
-            statusDiv.style.opacity = 1;
-
+            const statusDiv = document.getElementById('status-broadcast'); statusDiv.style.opacity = 1;
             const sender = document.getElementById('broadSenderId').value.trim().toUpperCase();
             const recipient = document.getElementById('broadRecipient').value;
             const subject = document.getElementById('broadSubject').value.trim();
             const body = document.getElementById('broadBody').value.trim();
 
-            if (!sender) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return;
-            }
-            if (!recipient || !subject || !body) {
-                statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all fields."; return;
-            }
+            if (!sender) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please enter your Staff ID."; return; }
+            if (!recipient || !subject || !body) { statusDiv.style.color = "var(--danger-red)"; statusDiv.innerText = "Error: Please fill out all fields."; return; }
 
-            statusDiv.innerText = "Sending Broadcast...";
-            statusDiv.style.color = "var(--primary-bg)";
-
+            statusDiv.innerText = "Sending Broadcast..."; statusDiv.style.color = "var(--primary-bg)";
             const id = "MSG-" + Date.now().toString().slice(-6);
+            
             try {
                 await setDoc(doc(firestore, "messages", id), {
-                    id, sender, recipient, subject, body,
-                    timestamp: Date.now(), date: new Date().toISOString()
+                    id, sender, recipient, subject, body, timestamp: Date.now(), date: new Date().toISOString()
                 });
                 window.resetPortal('status-broadcast', "Broadcast Sent Successfully.");
-            } catch (error) {
-                window.resetPortal('status-broadcast', "Saved Offline: Will send when signal returns.");
-            }
+            } catch (error) { window.resetPortal('status-broadcast', "Saved Offline: Will send when signal returns."); }
         };
 
         // --- MESSAGE LISTENER ---
@@ -578,17 +576,9 @@
             try {
                 const docSnap = await getDoc(doc(firestore, "settings", "system"));
                 if (docSnap.exists() && docSnap.data().logo) {
-                    // Update Login Screen
-                    const loginLogo = document.getElementById("portalLogoLogin");
-                    if (loginLogo) loginLogo.src = docSnap.data().logo;
-                    
-                    // Update Main Portal Header
-                    const mainLogo = document.getElementById("portalLogoMain");
-                    if (mainLogo) mainLogo.src = docSnap.data().logo;
-                    
-                    // Update Favicon
-                    const favicon = document.getElementById("app-favicon");
-                    if (favicon) favicon.href = docSnap.data().logo;
+                    const loginLogo = document.getElementById("portalLogoLogin"); if (loginLogo) loginLogo.src = docSnap.data().logo;
+                    const mainLogo = document.getElementById("portalLogoMain"); if (mainLogo) mainLogo.src = docSnap.data().logo;
+                    const favicon = document.getElementById("app-favicon"); if (favicon) favicon.href = docSnap.data().logo;
                 }
             } catch (e) {}
         }
