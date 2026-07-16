@@ -1,9 +1,12 @@
-const CACHE_NAME = 'dkb-guard-portal-v1';
+const CACHE_NAME = 'dkb-guard-portal-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  './logo.png',
+  './logo-180.png',
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+  'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg'
 ];
 
 // --- 1. PWA INSTALL & CACHE CORE ASSETS ---
@@ -33,14 +36,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// --- 3. FETCH EVENT (REQUIRED FOR INSTALLABILITY) ---
+// --- 3. FETCH EVENT (REQUIRED FOR INSTALLABILITY & OFFLINE) ---
 self.addEventListener('fetch', (event) => {
   // We don't want to cache Firebase database/API calls, only static app files
   if (event.request.url.includes('firestore.googleapis.com')) return;
 
   event.respondWith(
     caches.match(event.request).then((response) => {
-      // Return cached version if found, otherwise fetch from network
       return response || fetch(event.request);
     })
   );
